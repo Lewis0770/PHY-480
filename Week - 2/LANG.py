@@ -1,13 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Parameters
 dt = 0.01
 steps = 5000
-lambda_ = 1.0   # damping coefficient
+lambda_ = 1.0   
 np.random.seed(42)
 
-# Noise standard deviation: sqrt(1/dt)
 sigma = np.sqrt(1.0 / dt)
 
 def langevin(case="random_only"):
@@ -15,7 +13,7 @@ def langevin(case="random_only"):
     x = np.zeros(steps)
 
     if case == "relaxation":
-        v[0] = 10.0  # much larger than equilibrium scale
+        v[0] = 10.0  
 
     for i in range(steps - 1):
         eta = np.random.normal(0, sigma)
@@ -27,11 +25,9 @@ def langevin(case="random_only"):
 
     return x, v
 
-# Run both cases
 x1, v1 = langevin("random_only")
 x2, v2 = langevin("relaxation")
 
-# Plot velocity and position for both cases
 fig, axs = plt.subplots(2, 2, figsize=(12, 6))
 
 axs[0,0].plot(v1)
