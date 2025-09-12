@@ -36,7 +36,7 @@ counts = box_counting_hist(xs, ys, eps_values)
 plt.loglog(eps_values, counts, 'o-')
 plt.xlabel("ε")
 plt.ylabel("N(ε)")
-plt.title("Box-counting with histogram2d")
+plt.title("Box-counting")
 plt.show()
 
 log_eps = np.log(1/eps_values)
