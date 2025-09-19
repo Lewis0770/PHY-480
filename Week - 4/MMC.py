@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 
 N = 50
 J = 1.0
-steps = 50000
-temps = np.linspace(1.5, 2.5, 10)  # Focus around critical temperature Tc = 2J = 2.0
-warmup = 10000  
+steps = 10000
+temps = [1.61, 1.67, 1.72, 1.78, 1.83, 1.89, 1.94, 2.00, 2.22, 2.39]
+warmup = 5000 
 h = 0.0  
 
 
