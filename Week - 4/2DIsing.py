@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-L = 20              # Lattice size (LxL grid)
-steps = 100000      # Total Monte Carlo steps
+L = 20              
+steps = 100000      
 J = 1.0             
 Tc = 2.27           
 temperatures = [1.5, 2.27, 3.5] 
@@ -25,27 +25,23 @@ def delta_energy(spins, i, j, J):
     interaction = sum(spins[x, y] for x, y in neighbors)
     return 2 * J * s * interaction
 
-# ---------- Monte Carlo Simulation ----------
 def metropolis(L, T, steps):
     spins = initialize_spins(L)
     M_values = []
 
     for step in range(steps):
-        # pick a random site
         i, j = np.random.randint(0, L), np.random.randint(0, L)
         dE = delta_energy(spins, i, j, J)
 
-        # Metropolis acceptance criterion
         if dE < 0 or np.random.rand() < np.exp(-dE / T):
             spins[i, j] *= -1
 
-        if step % (L*L) == 0:  # one sweep = L^2 steps
+        if step % (L*L) == 0: 
             M = np.sum(spins) / (L*L)
             M_values.append(abs(M))
 
     return np.array(M_values)
 
-# ---------- Run simulations for 3 temperatures ----------
 plt.figure(figsize=(12, 5))
 
 for T in temperatures:
