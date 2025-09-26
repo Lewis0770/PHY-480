@@ -2,55 +2,46 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-R = 4.0  
-N = 200  
-dt = 0.02  
-nt = 20 
+N = 200
+dt = 0.02
+num_iterations = 20
+mass = 9.109e-31
+charge = -1.602e-19
+k_coulomb = 8.99e9
 
-mass = 9.109e-31 
-charge = -1.602e-19 
-k_coulomb = 8.99e9 
-
+radius = 4.0
 positions = np.zeros((N, 3))
-min_distance = R * 0.01 
+min_distance = 0.1
 max_attempts = 1000
 
-print("Initializing particle positions...")
+# Generate initial positions within sphere
 for i in range(N):
     attempts = 0
     while attempts < max_attempts:
-        # Generate random position in sphere
-        phi = np.random.uniform(0, 2*np.pi)
-        costheta = np.random.uniform(-1, 1)
-        u = np.random.uniform(0, 1)
+        x = np.random.uniform(-radius, radius)
+        y = np.random.uniform(-radius, radius)
+        z = np.random.uniform(-radius, radius)
         
-        theta = np.arccos(costheta)
-        r = R * (u**(1/3))  # Correct radial distribution for sphere
-        
-        x = r * np.sin(theta) * np.cos(phi)
-        y = r * np.sin(theta) * np.sin(phi)
-        z = r * np.cos(theta)
-        new_pos = np.array([x, y, z])
-        
-        # Check minimum distance constraint
-        too_close = False
-        for j in range(i):
-            distance = np.linalg.norm(new_pos - positions[j])
-            if distance < min_distance:
-                too_close = True
+        if x**2 + y**2 + z**2 <= radius**2:
+            new_pos = np.array([x, y, z])
+            
+            too_close = False
+            for j in range(i):
+                distance = np.linalg.norm(new_pos - positions[j])
+                if distance < min_distance:
+                    too_close = True
+                    break
+            
+            if not too_close:
+                positions[i] = new_pos
                 break
         
-        if not too_close:
-            positions[i] = new_pos
-            break
-        
         attempts += 1
-    
+        
     if attempts >= max_attempts:
-        print(f"Warning: Could not place particle {i} with minimum distance constraint")
-        positions[i] = new_pos
-
-initial_positions = positions.copy()
+        print(f"Regenerating positions due to overcrowding...")
+        i = 0
+        positions = np.zeros((N, 3))
 
 com_pos = np.mean(positions, axis=0)
 positions -= com_pos
@@ -58,9 +49,8 @@ positions -= com_pos
 velocities = np.zeros((N, 3))
 
 def compute_forces(pos):
-    """Compute Coulomb forces between all particles"""
     forces = np.zeros((N, 3))
-    min_dist = R * 1e-6  
+    min_dist = 1e-3
     
     for i in range(N):
         for j in range(i+1, N):
@@ -70,7 +60,6 @@ def compute_forces(pos):
             if r_mag < min_dist:
                 r_mag = min_dist
             
-            # Repulsive force
             force_mag = k_coulomb * charge**2 / r_mag**2
             r_unit = r_vec / r_mag
             force_vec = force_mag * r_unit
@@ -80,32 +69,28 @@ def compute_forces(pos):
     
     return forces
 
-def compute_radial_quantities(pos, vel):
-    """Compute radial positions, velocities, and forces"""
-    radial_pos = np.linalg.norm(pos, axis=1)
-    
-    # Radial velocity: v_r = (r · v) / |r|
-    radial_vel = np.zeros(N)
-    for i in range(N):
-        if radial_pos[i] > 1e-12:
-            radial_vel[i] = np.dot(pos[i], vel[i]) / radial_pos[i]
-    
-    return radial_pos, radial_vel
-
-position_history = np.zeros((nt+1, N, 3))
-velocity_history = np.zeros((nt+1, N, 3))
-energy_history = {'kinetic': [], 'potential': [], 'total': []}
-radial_history = {'positions': [], 'velocities': [], 'avg_radius': []}
-
-position_history[0] = positions.copy()
-velocity_history[0] = velocities.copy()
-
-print("Starting MD simulation...")
+# Storage arrays
+all_positions = []
+all_velocities = []
+all_forces = []
+kinetic_energies = []
+potential_energies = []
+total_energies = []
+cloud_radius = []
+radial_velocities = []
+velocity_fluctuations = []
 
 forces = compute_forces(positions)
 accelerations = forces / mass
 
-for step in range(nt):
+print("Starting MD simulation...")
+
+# Main simulation loop
+for iteration in range(num_iterations):
+    all_positions.append(positions.copy())
+    all_velocities.append(velocities.copy())
+    all_forces.append(forces.copy())
+    
     positions = positions + velocities * dt + 0.5 * accelerations * dt**2
     
     com_pos = np.mean(positions, axis=0)
@@ -121,9 +106,7 @@ for step in range(nt):
     
     accelerations = new_accelerations
     
-    position_history[step+1] = positions.copy()
-    velocity_history[step+1] = velocities.copy()
-    
+    # Calculate energies
     kinetic_energy = 0.5 * mass * np.sum(velocities**2)
     
     potential_energy = 0
@@ -135,177 +118,204 @@ for step in range(nt):
     
     total_energy = kinetic_energy + potential_energy
     
-    energy_history['kinetic'].append(kinetic_energy)
-    energy_history['potential'].append(potential_energy)
-    energy_history['total'].append(total_energy)
+    kinetic_energies.append(kinetic_energy)
+    potential_energies.append(potential_energy)
+    total_energies.append(total_energy)
     
-    radial_pos, radial_vel = compute_radial_quantities(positions, velocities)
-    radial_history['positions'].append(radial_pos.copy())
-    radial_history['velocities'].append(radial_vel.copy())
-    radial_history['avg_radius'].append(np.mean(radial_pos))
+    distances_from_com = np.linalg.norm(positions, axis=1)
+    rms_radius = np.sqrt(np.mean(distances_from_com**2))
+    cloud_radius.append(rms_radius)
     
-    if step % 5 == 0:
-        print(f"Step {step+1}/{nt} completed")
+    radial_vel = []
+    for i in range(N):
+        r_vec = positions[i]
+        v_vec = velocities[i]
+        r_mag = np.linalg.norm(r_vec)
+        if r_mag > 1e-12:
+            r_unit = r_vec / r_mag
+            v_radial = np.dot(v_vec, r_unit)
+            radial_vel.append(v_radial)
+    
+    if radial_vel:
+        avg_radial_vel = np.mean(radial_vel)
+        radial_velocities.append(avg_radial_vel)
+    else:
+        radial_velocities.append(0)
+    
+    v_magnitudes = np.linalg.norm(velocities, axis=1)
+    v_fluctuation = np.std(v_magnitudes)
+    velocity_fluctuations.append(v_fluctuation)
+    
+    if iteration % 5 == 0:
+        print(f"Iteration {iteration}/{num_iterations}")
 
-print("Simulation completed. Creating plots...")
+print("Simulation completed.")
 
-fig = plt.figure(figsize=(20, 18))
+# Convert to arrays
+all_positions = np.array(all_positions)
+all_velocities = np.array(all_velocities)
+all_forces = np.array(all_forces)
+time_array = np.arange(num_iterations) * dt
 
-# 3D scatter plot of initial and final positions
-ax1 = fig.add_subplot(3, 3, 1, projection='3d')
-ax1.scatter(initial_positions[:, 0], initial_positions[:, 1], initial_positions[:, 2], 
-           c='blue', alpha=0.6, s=30, label='Initial')
-ax1.scatter(position_history[-1, :, 0], position_history[-1, :, 1], position_history[-1, :, 2], 
-           c='red', alpha=0.6, s=30, label='Final')
-ax1.set_xlabel('X')
-ax1.set_ylabel('Y')
-ax1.set_zlabel('Z')
+# Create plots
+fig = plt.figure(figsize=(24, 18))
+fig.subplots_adjust(left=0.08, right=0.95, top=0.93, bottom=0.07, hspace=0.4, wspace=0.3)
+
+# (i) 3D scatter plot
+ax1 = fig.add_subplot(3, 4, 1, projection='3d')
+ax1.scatter(all_positions[0, :, 0], all_positions[0, :, 1], all_positions[0, :, 2], 
+           c='blue', alpha=0.6, s=20, label='Initial')
+ax1.scatter(all_positions[-1, :, 0], all_positions[-1, :, 1], all_positions[-1, :, 2], 
+           c='red', alpha=0.6, s=20, label='Final')
+ax1.set_xlabel('X (m)')
+ax1.set_ylabel('Y (m)')
+ax1.set_zlabel('Z (m)')
 ax1.set_title('Initial vs Final Positions')
 ax1.legend()
 
-# Energy vs time step
-ax2 = fig.add_subplot(3, 3, 2)
-time_steps = range(nt)
-ax2.plot(time_steps, energy_history['kinetic'], label='Kinetic Energy', linewidth=2)
-ax2.plot(time_steps, energy_history['potential'], label='Potential Energy', linewidth=2)
-ax2.plot(time_steps, energy_history['total'], label='Total Energy', linewidth=2)
-ax2.set_xlabel('Time Step')
+# (ii) Energy plot
+ax2 = fig.add_subplot(3, 4, 2)
+ax2.plot(time_array, kinetic_energies, label='Kinetic Energy', color='blue')
+ax2.plot(time_array, potential_energies, label='Potential Energy', color='red')
+ax2.plot(time_array, total_energies, label='Total Energy', color='green')
+ax2.set_xlabel('Time (s)')
 ax2.set_ylabel('Energy (J)')
-ax2.set_title('Energy Conservation')
+ax2.set_title('Energy vs Time')
 ax2.legend()
 ax2.grid(True)
 
-# Histogram of particle positions vs r at different time steps
-ax3 = fig.add_subplot(3, 3, 3)
-plot_steps = [5, 10, 15, min(19, nt-1)]  # Adjust based on available steps
+# (iii) Histogram of positions
+ax3 = fig.add_subplot(3, 4, 3)
+times_to_plot = [0, len(all_positions)//4, len(all_positions)//2, -1]
+time_labels = ['t=0', 't=T/4', 't=T/2', 't=T']
 colors = ['blue', 'green', 'orange', 'red']
-for i, step in enumerate(plot_steps):
-    if step < len(radial_history['positions']):
-        r_values = radial_history['positions'][step]
-        ax3.hist(r_values, bins=20, alpha=0.7, color=colors[i], 
-                label=f'Step {step+1}', density=True)
-ax3.set_xlabel('Radial Distance r')
-ax3.set_ylabel('Probability Density')
-ax3.set_title('Radial Distribution at Different Times')
-ax3.legend()
-ax3.grid(True, alpha=0.3)
 
-# Radial force scatter plot (at intermediate time)
-ax4 = fig.add_subplot(3, 3, 4)
-mid_step = min(10, len(radial_history['positions'])-1)
-if mid_step < len(radial_history['positions']):
-    r_values = radial_history['positions'][mid_step]
-    positions_mid = position_history[mid_step+1]
-    
-    forces_mid = compute_forces(positions_mid)
-    radial_forces = np.zeros(N)
+for i, (time_idx, label, color) in enumerate(zip(times_to_plot, time_labels, colors)):
+    distances = np.linalg.norm(all_positions[time_idx], axis=1)
+    ax3.hist(distances, bins=15, alpha=0.6, label=label, color=color, density=True)
+
+ax3.set_xlabel('Distance from COM (m)')
+ax3.set_ylabel('Probability Density')
+ax3.set_title('Position Distribution vs Time')
+ax3.legend()
+ax3.grid(True)
+
+# (iv) Force analysis
+ax4 = fig.add_subplot(3, 4, 4)
+r_sample = np.linspace(0.1, 5.0, 100)
+force_sample = k_coulomb * charge**2 / r_sample**2
+ax4.plot(r_sample, force_sample, 'k-', linewidth=2, label='Theoretical F=kq²/r²')
+
+if len(all_forces) > 10:
+    mid_time_idx = min(10, len(all_forces)-1)
+    distances_sim = []
+    forces_sim = []
     
     for i in range(N):
-        r_mag = np.linalg.norm(positions_mid[i])
-        if r_mag > 1e-12:
-            radial_forces[i] = np.dot(positions_mid[i], forces_mid[i]) / r_mag
+        r_vec = all_positions[mid_time_idx, i]
+        f_vec = all_forces[mid_time_idx, i]
+        r_mag = np.linalg.norm(r_vec)
+        f_mag = np.linalg.norm(f_vec)
+        if r_mag > 0.01 and f_mag > 0:
+            distances_sim.append(r_mag)
+            forces_sim.append(f_mag)
     
-    ax4.scatter(r_values, radial_forces, alpha=0.7)
-    ax4.set_xlabel('Radial Distance r')
-    ax4.set_ylabel('Radial Force F_r')
-    ax4.set_title(f'Radial Force vs Position (Step {mid_step+1})')
-    ax4.grid(True, alpha=0.3)
+    if distances_sim:
+        ax4.scatter(distances_sim, forces_sim, alpha=0.6, s=20, c='red', 
+                   label=f'Simulation data (t={mid_time_idx*dt:.3f}s)')
 
-# Radial velocity scatter plot
-ax5 = fig.add_subplot(3, 3, 5)
-if mid_step < len(radial_history['positions']):
-    r_values = radial_history['positions'][mid_step]
-    vr_values = radial_history['velocities'][mid_step]
-    ax5.scatter(r_values, vr_values, alpha=0.7)
-    ax5.set_xlabel('Radial Distance r')
-    ax5.set_ylabel('Radial Velocity v_r')
-    ax5.set_title(f'Radial Velocity vs Position (Step {mid_step+1})')
-    ax5.grid(True, alpha=0.3)
-    
-    correlation = np.corrcoef(r_values, vr_values)[0, 1]
-    ax5.text(0.05, 0.95, f'Correlation: {correlation:.3f}', 
-             transform=ax5.transAxes, verticalalignment='top')
+ax4.set_xlabel('Distance (m)')
+ax4.set_ylabel('Force Magnitude (N)')
+ax4.set_title('Force vs Distance: Theory vs Simulation')
+ax4.legend()
+ax4.grid(True)
+ax4.set_yscale('log')
+ax4.set_xscale('log')
 
-# Time dependence of cloud properties
-ax6 = fig.add_subplot(3, 3, 6)
-time_array = np.arange(nt) * dt
+# (v) Radial velocity scatter
+ax5 = fig.add_subplot(3, 4, 5)
+final_distances = np.linalg.norm(all_positions[-1], axis=1)
+final_radial_vels = []
+for i in range(N):
+    r_vec = all_positions[-1, i]
+    v_vec = all_velocities[-1, i]
+    r_mag = np.linalg.norm(r_vec)
+    if r_mag > 1e-12:
+        r_unit = r_vec / r_mag
+        v_radial = np.dot(v_vec, r_unit)
+        final_radial_vels.append(v_radial)
+    else:
+        final_radial_vels.append(0)
 
-avg_radii = radial_history['avg_radius']
-ax6.plot(time_array, avg_radii, 'b-', linewidth=2, label='Avg Radius')
-ax6.set_xlabel('Time')
-ax6.set_ylabel('Average Radius')
-ax6.set_title('(a) Average Radius of Cloud vs Time')
-ax6.grid(True, alpha=0.3)
+ax5.scatter(final_distances, final_radial_vels, alpha=0.6)
+ax5.set_xlabel('Distance from COM (m)')
+ax5.set_ylabel('Radial Velocity (m/s)')
+ax5.set_title('Radial Velocity vs Distance')
+ax5.grid(True)
+
+# (vi) Time dependence plots
+ax6 = fig.add_subplot(3, 4, 6)
+ax6.plot(time_array, cloud_radius, 'b-', linewidth=2, label='Cloud Radius')
+ax6.set_xlabel('Time (s)')
+ax6.set_ylabel('RMS Radius (m)')
+ax6.set_title('Cloud Radius vs Time')
+ax6.grid(True)
 ax6.legend()
 
-ax7 = fig.add_subplot(3, 3, 7)
-
-radial_velocity_cloud = np.gradient(avg_radii, dt)
-ax7.plot(time_array, radial_velocity_cloud, 'g-', linewidth=2, label='Radial Velocity')
-ax7.set_xlabel('Time')
-ax7.set_ylabel('Radial Velocity of Cloud')
-ax7.set_title('(b) Cloud Radial Velocity')
-ax7.grid(True, alpha=0.3)
+ax7 = fig.add_subplot(3, 4, 7)
+ax7.plot(time_array, radial_velocities, 'r-', linewidth=2, label='Avg Radial Velocity')
+ax7.set_xlabel('Time (s)')
+ax7.set_ylabel('Radial Velocity (m/s)')
+ax7.set_title('Average Radial Velocity vs Time')
+ax7.grid(True)
 ax7.legend()
 
-ax8 = fig.add_subplot(3, 3, 8)
-velocity_fluctuations = []
-for step in range(len(radial_history['velocities'])):
-    vr_rms = np.sqrt(np.mean(np.array(radial_history['velocities'][step])**2))
-    velocity_fluctuations.append(vr_rms)
-
-ax8.plot(time_array, velocity_fluctuations, 'r-', linewidth=2, label='v_r RMS')
-ax8.set_xlabel('Time')
-ax8.set_ylabel('Velocity Fluctuations v²_r')
-ax8.set_title('(c) RMS Radial Velocity Fluctuations')
-ax8.grid(True, alpha=0.3)
+ax8 = fig.add_subplot(3, 4, 8)
+ax8.plot(time_array, velocity_fluctuations, 'g-', linewidth=2, label='Velocity Fluctuations')
+ax8.set_xlabel('Time (s)')
+ax8.set_ylabel('Velocity Std Dev (m/s)')
+ax8.set_title('Velocity Fluctuations vs Time')
+ax8.grid(True)
 ax8.legend()
 
-# Combined plot for easy comparison - ALL THREE QUANTITIES ON ONE GRAPH
-ax9 = fig.add_subplot(3, 3, 9)
+# Additional plots
+ax9 = fig.add_subplot(3, 4, 9)
+# COM position drift
+com_positions = np.array([np.mean(pos, axis=0) for pos in all_positions])
+ax9.plot(time_array, np.linalg.norm(com_positions, axis=1), 'k-', linewidth=2)
+ax9.set_xlabel('Time (s)')
+ax9.set_ylabel('COM Displacement (m)')
+ax9.set_title('Center of Mass Drift')
+ax9.grid(True)
 
-ax9_twin1 = ax9.twinx()
-ax9_twin2 = ax9.twinx()
+ax10 = fig.add_subplot(3, 4, 10)
+energy_error = (np.array(total_energies) - total_energies[0]) / abs(total_energies[0]) * 100
+ax10.plot(time_array, energy_error, 'r-', linewidth=2)
+ax10.set_xlabel('Time (s)')
+ax10.set_ylabel('Energy Error (%)')
+ax10.set_title('Energy Conservation Error')
+ax10.grid(True)
 
-ax9_twin2.spines['right'].set_position(('outward', 60))
+ax11 = fig.add_subplot(3, 4, 11)
+if len(cloud_radius) > 1:
+    expansion_rate = np.diff(cloud_radius) / dt
+    ax11.plot(time_array[1:], expansion_rate, 'purple', linewidth=2)
+ax11.set_xlabel('Time (s)')
+ax11.set_ylabel('dR/dt (m/s)')
+ax11.set_title('Cloud Expansion Rate')
+ax11.grid(True)
 
-line1 = ax9.plot(time_array, avg_radii, 'b-', linewidth=3, label='(a) Avg Radius of Cloud')
-line2 = ax9_twin1.plot(time_array, radial_velocity_cloud, 'g-', linewidth=3, label='(b) Radial Velocity of Cloud')
-line3 = ax9_twin2.plot(time_array, velocity_fluctuations, 'r-', linewidth=3, label='(c) Velocity Fluctuations v²_r')
+ax12 = fig.add_subplot(3, 4, 12)
+temperature_like = np.array(kinetic_energies) / (1.5 * N * 1.38e-23)
+ax12.plot(time_array, temperature_like, 'orange', linewidth=2)
+ax12.set_xlabel('Time (s)')
+ax12.set_ylabel('Temperature-like (K)')
+ax12.set_title('Effective Temperature')
+ax12.grid(True)
 
-ax9.set_xlabel('Time', fontsize=12, fontweight='bold')
-ax9.set_ylabel('Average Radius', color='blue', fontsize=11, fontweight='bold')
-ax9_twin1.set_ylabel('Radial Velocity', color='green', fontsize=11, fontweight='bold')
-ax9_twin2.set_ylabel('Velocity Fluctuations', color='red', fontsize=11, fontweight='bold')
-
-ax9.tick_params(axis='y', labelcolor='blue')
-ax9_twin1.tick_params(axis='y', labelcolor='green')
-ax9_twin2.tick_params(axis='y', labelcolor='red')
-
-ax9.set_title('(vi) Time Dependence: Three Cloud Quantities', fontsize=12, fontweight='bold')
-
-lines = line1 + line2 + line3
-labels = [l.get_label() for l in lines]
-ax9.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.20), ncol=3, frameon=True, fancybox=True, shadow=True)
-
-ax9.grid(True, alpha=0.3)
-
-plt.tight_layout(pad=5.0)
-plt.subplots_adjust(hspace=0.6, wspace=0.4, top=0.93, bottom=0.10)
 plt.show()
 
-print("\n=== Simulation Results ===")
-print(f"Parameters: R={R}, N={N}, dt={dt}, nt={nt}")
-print(f"Initial total energy: {energy_history['total'][0]:.6e} J")
-print(f"Final total energy: {energy_history['total'][-1]:.6e} J")
-if len(energy_history['total']) > 1:
-    energy_change = abs(energy_history['total'][-1] - energy_history['total'][0])
-    energy_error = energy_change / abs(energy_history['total'][0]) * 100
-    print(f"Energy conservation error: {energy_error:.4f}%")
-
-print(f"Initial average radius: {avg_radii[0]:.6e}")
-print(f"Final average radius: {avg_radii[-1]:.6e}")
-print(f"Average cloud expansion rate: {np.mean(radial_velocity_cloud):.6e}")
-
-print("\nSimulation completed successfully!")
-print("For production runs, change parameters to: N=1000, nt=50")
+print(f"Initial total energy: {total_energies[0]:.6e} J")
+print(f"Final total energy: {total_energies[-1]:.6e} J")
+print(f"Initial radius: {cloud_radius[0]:.3f} m")
+print(f"Final radius: {cloud_radius[-1]:.3f} m")
