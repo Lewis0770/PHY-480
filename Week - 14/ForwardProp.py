@@ -16,7 +16,6 @@ print(f"Mixing parameter (α): {alpha}\n")
 
 print("Generating training set...")
 training_set = []
-
 for i in range(nt):
     J = np.random.randn(N, N)
     J = (J + J.T) / 2  
